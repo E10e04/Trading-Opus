@@ -1,0 +1,44 @@
+{
+  "name": "trading-opus-frontend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "electron:dev": "concurrently \"vite\" \"wait-on tcp:5173 && electron .\"",
+    "electron:start": "electron .",
+    "dist:win": "vite build && electron-builder --win --x64",
+    "dist:mac": "vite build && electron-builder --mac --x64 --config.mac.target=dmg"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.4",
+    "typescript": "5.6.3",
+    "vite": "5.4.11",
+    "vitest": "2.1.8",
+    "concurrently": "9.1.0",
+    "wait-on": "8.0.1",
+    "electron": "37.2.0",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "ai.tradingopus.app",
+    "productName": "Trading Opus",
+    "files": ["dist/**/*", "electron/**/*", "package.json"],
+    "directories": { "output": "release" },
+    "win": { "target": "nsis", "icon": "electron/icon.png" },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.finance",
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}
