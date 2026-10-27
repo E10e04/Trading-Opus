@@ -118,15 +118,17 @@ def test_blocked_proposal_never_reaches_user():
     engine = PaperEngine()
     engine.create_portfolio("main", 5000)
     o = Orchestrator(paper_engine=engine)
+    # 3 entries already placed today + the daily loss limit used up:
+    # Risk must BLOCK the new proposal at the gate.
     out = asyncio.run(o.run_trade_pipeline(
         "TSLA", daily_closes=[300 + i for i in range(30)],
         intraday_bars=_bars(DAY, REEL), chart_by_day=_synthetic_chart(DAY),
         now=datetime(2026, 10, 19, 10, 15),
-        cash=4500.0, holdings={},
-        fresh={"TSLA": {"price": 366.48, "age_min": 3}},  # rr 0.44 -> must refuse
-        today_entries=0, today_risk=0.0))
-    # either Budget refuses the sizing or Risk blocks it: nothing proposed
-    assert out["status"] in ("risk_blocked", "not_sized")
+        cash=4500.0, holdings={}, fresh={},
+        today_entries=3, today_risk=150.0))
+    assert out["status"] == "risk_blocked", out
+    assert any("trades" in r or "daily loss" in r
+               for r in out.get("reason", [])), out.get("reason")
     assert o.proposals == {}                        # nothing proposed when blocked
 
 
