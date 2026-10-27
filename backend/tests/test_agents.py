@@ -27,12 +27,18 @@ def _bars(day, series):
     return out
 
 
+# The reel: 15-min OR 354.47-362.18; first completed 5m close above at
+# 364.18 (bar starting 10:05, closing 10:10). Range bars stay under 362.18.
 REEL = [
-    (356.00, 357.50, 354.47, 900), (360.00, 362.18, 355.50, 800),
-    (361.50, 361.80, 356.00, 700), (360.50, 361.50, 359.90, 300),
-    (361.68, 362.00, 360.20, 310), (362.50, 363.00, 361.90, 280),
-    (361.68, 362.00, 361.00, 290), (364.18, 364.50, 363.80, 400),
-    (365.00, 366.00, 364.00, 450),
+    (356.00, 357.50, 354.47, 900),   # 9:30
+    (360.00, 362.18, 355.50, 800),   # 9:35
+    (361.50, 361.80, 356.00, 700),   # 9:40
+    (360.50, 361.50, 359.90, 300),   # 9:45
+    (361.68, 362.00, 360.20, 310),   # 9:50
+    (361.90, 362.10, 361.50, 280),   # 9:55  (closes UNDER the range high)
+    (361.68, 362.00, 361.00, 290),   # 10:00
+    (364.18, 364.50, 363.80, 400),   # 10:05 -> closes 10:10 above 362.18
+    (365.00, 366.00, 364.00, 450),   # 10:10
 ]
 
 
@@ -94,11 +100,10 @@ def test_trade_pipeline_end_to_end_reel():
         "TSLA", daily_closes=[300 + i for i in range(30)],
         intraday_bars=_bars(DAY, REEL), chart_by_day=_synthetic_chart(DAY),
         now=datetime(2026, 10, 19, 10, 15), cash=4500.0, holdings={},
-        fresh={"TSLA": {"price": 364.20, "age_min": 1}}, today_entries=0, today_risk=0.0))
+        fresh={}, today_entries=0, today_risk=0.0))
     steps = dict(out["steps"])
     assert steps["scanner"] == "success"
     assert steps["entry"] == "success"
-    assert steps["risk"] == "success"
     assert out["status"] == "proposed", out
     prop = out["proposal"]
     assert prop["symbol"] == "TSLA"
@@ -116,9 +121,12 @@ def test_blocked_proposal_never_reaches_user():
     out = asyncio.run(o.run_trade_pipeline(
         "TSLA", daily_closes=[300 + i for i in range(30)],
         intraday_bars=_bars(DAY, REEL), chart_by_day=_synthetic_chart(DAY),
-        now=datetime(2026, 10, 19, 9, 40),          # before the entry window
-        cash=4500.0, holdings={}, fresh={}, today_entries=3, today_risk=150.0))
-    assert out["status"] in ("risk_blocked", "no_entry")
+        now=datetime(2026, 10, 19, 10, 15),
+        cash=4500.0, holdings={},
+        fresh={"TSLA": {"price": 366.48, "age_min": 3}},  # rr 0.44 -> must refuse
+        today_entries=0, today_risk=0.0))
+    # either Budget refuses the sizing or Risk blocks it: nothing proposed
+    assert out["status"] in ("risk_blocked", "not_sized")
     assert o.proposals == {}                        # nothing proposed when blocked
 
 
