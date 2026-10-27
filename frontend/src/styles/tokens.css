@@ -1,0 +1,123 @@
+/* Trading Opus design tokens - a shared token system for BOTH themes.
+   The light theme is designed on its own, not an inverted dark theme. */
+
+:root {
+  /* shared: metrics, spacing, radii, motion */
+  --radius-s: 4px;
+  --radius-m: 8px;
+  --radius-l: 12px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 24px; --space-6: 32px;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+  --shadow-panel: 0 1px 2px rgba(0, 0, 0, 0.24);
+  --transition-fast: 120ms ease;
+}
+
+/* ---------- DARK (default): no pure black, premium terminal ---------- */
+[data-theme='dark'] {
+  --bg: #171C24;
+  --panel: #202733;
+  --surface: #273140;
+  --border: #354153;
+  --text: #E8EDF5;
+  --text-muted: #A6B1C2;
+  --accent: #6488F5;
+  --success: #35B889;
+  --warning: #E7AD54;
+  --danger: #E46F79;
+  --shadow-panel: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* ---------- LIGHT: designed for daylight, higher contrast borders ----- */
+[data-theme='light'] {
+  --bg: #F3F5F8;
+  --panel: #FFFFFF;
+  --surface: #E9EDF3;
+  --border: #D8DEE8;
+  --text: #1D2635;
+  --text-muted: #5F6B7D;
+  --accent: #315FD6;
+  --success: #16845F;
+  --warning: #94600D;
+  --danger: #C53E4C;
+  --shadow-panel: 0 1px 3px rgba(29, 38, 53, 0.08);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* tabular figures for every price and financial number */
+.num, td.price, .mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-panel);
+  padding: var(--space-4);
+}
+
+.row { display: flex; align-items: center; gap: var(--space-3); }
+.grow { flex: 1; }
+
+table.fin {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.fin th, table.fin td {
+  padding: var(--space-2) var(--space-3);
+  text-align: right;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+table.fin th { color: var(--text-muted); font-weight: 500; text-align: left; }
+table.fin tr:last-child td { border-bottom: none; }
+
+.pos { color: var(--success); }
+.neg { color: var(--danger); }
+.muted { color: var(--text-muted); }
+.warn { color: var(--warning); }
+
+button {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  padding: var(--space-2) var(--space-4);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+button:hover { background: var(--panel); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* connection / data state badges */
+.badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 10px; border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px; color: var(--text-muted);
+  background: var(--surface);
+}
+.badge.ok { color: var(--success); border-color: var(--success); }
+.badge.warn { color: var(--warning); border-color: var(--warning); }
+.badge.err { color: var(--danger); border-color: var(--danger); }
+
+.loading { color: var(--text-muted); font-style: italic; }
+.error { color: var(--danger); }
