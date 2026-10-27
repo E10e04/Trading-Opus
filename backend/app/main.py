@@ -7,7 +7,6 @@ import asyncio
 import json
 import os
 from contextlib import asynccontextmanager
-from datetime import date
 
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -16,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .ai.openrouter import OpenRouterClient
 from .agents.orchestrator import Orchestrator
 from .core.paper import PaperEngine, PaperTradingError
-from .db.models import make_engine, make_session, AgentRunRow, Portfolio, OrderRow
+from .db.models import make_engine, make_session, AgentRunRow
 from .market.biquote import BiQuoteProvider, BiQuoteConfig
 
 
@@ -62,8 +61,12 @@ class AppState:
 
     async def start(self):
         def on_tick(tick):
-            asyncio.get_event_loop().call_soon(self._fan_out, {
-                "type": "tick", "tick": tick.as_dict()})
+            try:
+                loop = asyncio.get_running_loop()
+                loop.call_soon_threadsafe(self._fan_out, {
+                    "type": "tick", "tick": tick.as_dict()})
+            except RuntimeError:
+                pass
         self.biquote.subscribe(on_tick)
         self._biquote_task = asyncio.create_task(self.biquote.start())
 
@@ -72,14 +75,12 @@ class AppState:
         await self.http.aclose()
 
     def _fan_out(self, payload: dict):
-        dead = []
-        for ws in self.ws_clients:
+        text = json.dumps(payload)
+        for ws in list(self.ws_clients):
             try:
-                asyncio.get_event_loop().create_task(ws.send_text(json.dumps(payload)))
+                asyncio.get_event_loop().create_task(ws.send_text(text))
             except Exception:
-                dead.append(ws)
-        for ws in dead:
-            self.ws_clients.discard(ws)
+                self.ws_clients.discard(ws)
 
 
 state = AppState()
@@ -100,8 +101,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
 # ------------------------------- system -------------------------------
 @app.get("/api/v1/system/status")
 async def system_status():
-    b = state.biquote.state()
-    return {"system": "ok", "biquote": b,
+    return {"system": "ok", "biquote": state.biquote.state(),
             "agents": state.orch.list_agents(),
             "paper": {"portfolios": list(state.engine.portfolios)}}
 
@@ -187,18 +187,19 @@ async def submit_order(pid: str, order: dict):
     """Manual order entry: still goes through validation + the Risk gate.
     Paper engine only; no real broker route exists."""
     try:
-        v = state.orch.run_agent("risk", orders=[order],
-                                 holdings={s: p.qty for s, p in
-                                           state.engine.get(pid).positions.items()},
-                                 cash=state.engine.get(pid).cash)
+        v = await state.orch.run_agent("risk", orders=[order],
+                                       holdings={s: p.qty for s, p in
+                                                 state.engine.get(pid).positions.items()},
+                                       cash=state.engine.get(pid).cash)
     except Exception as e:
         return {"error": str(e)}
-    verdicts = (v.get("data") or {}).get("verdicts") if isinstance(v, dict) else None
+    verdicts = (v.get("data") or {}).get("verdicts") or []
     if not verdicts or verdicts[0]["verdict"] != "PASS":
         return {"risk": "BLOCK", "verdicts": verdicts}
-    mid = order.get("mid_price") or (
-        state.biquote._latest.get(order.get("symbol", "").upper()).mid
-        if order.get("symbol", "").upper() in state.biquote._latest else None)
+    sym = (order.get("symbol") or "").upper()
+    mid = order.get("mid_price")
+    if mid is None and sym in state.biquote._latest:
+        mid = state.biquote._latest[sym].mid
     if mid is None:
         return {"error": "no fresh price for this symbol; nothing executed"}
     try:
