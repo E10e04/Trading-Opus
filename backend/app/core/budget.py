@@ -1,7 +1,8 @@
 """Budget Manager - port of trader-budget/size.py (day-trader-skill @ 3d0f4ef, MIT).
 The stop decides the size: the further away the stop, the fewer shares.
-Whole shares only. The size is the smallest of four limits. Explicit refusals.
-Writes one bracket order (paper trading only in this application).
+Whole shares only. The size is the smallest of four limits. Explicit refusals:
+a stop too far for the max loss is a plain refusal ("zero shares"), never a
+smaller order. Writes one bracket order (paper trading only here).
 """
 from __future__ import annotations
 import math
@@ -64,14 +65,8 @@ def size_position(plan, config=None, fresh_price=None, fresh_age_min=None,
         eff = float(fresh_price)
 
     risk = round(eff - stop, 2)
-    # reward:risk rounded to 2 decimals, like the skill prints it (1.00 at 1R):
-    # raw float division of cent-rounded prices can sit a hair under 1.0.
-    rr = round((target - eff) / risk, 2) if risk > 0 else 0.0
-    if rr < cfg["min_reward_risk"]:
-        raise BudgetRefusal(
-            "reward:risk " + format(rr, ".2f") + " under min "
-            + str(cfg["min_reward_risk"]) + " (the move mostly happened)")
 
+    # ---- the four limits; the smallest decides (whole shares only) ----
     limits = {
         "max_loss": math.floor(cfg["max_loss_per_trade_usd"] / risk) if risk > 0 else 0,
         "position_cap": math.floor(cfg["budget"] * cfg["max_position_pct"] / 100.0 / eff),
@@ -88,6 +83,13 @@ def size_position(plan, config=None, fresh_price=None, fresh_age_min=None,
     notional = round(qty * eff, 2)
     if notional < cfg["min_order_usd"]:
         raise BudgetRefusal("order under the minimum " + str(cfg["min_order_usd"]) + " USD")
+
+    # ---- reward:risk, rounded to 2 decimals like the skill prints it ----
+    rr = round((target - eff) / risk, 2) if risk > 0 else 0.0
+    if rr < cfg["min_reward_risk"]:
+        raise BudgetRefusal(
+            "reward:risk " + format(rr, ".2f") + " under min "
+            + str(cfg["min_reward_risk"]) + " (the move mostly happened)")
 
     max_loss = round(qty * risk, 2)
     order = {
