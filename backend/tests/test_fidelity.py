@@ -32,16 +32,19 @@ def _bars(day, series):
     return out
 
 
+# The reel: 15-min OR 354.47-362.18 (bars 9:30/9:35/9:40). The 10:10 bar
+# (start 10:05, bar 8) closed at 364.18, the first close above the range high,
+# and the call is made at 10:15 once it is complete.
 REEL_SERIES = [
     (356.00, 357.50, 354.47, 900),   # 9:30
     (360.00, 362.18, 355.50, 800),   # 9:35
     (361.50, 361.80, 356.00, 700),   # 9:40
     (360.50, 361.50, 359.90, 300),   # 9:45
     (361.68, 362.00, 360.20, 310),   # 9:50
-    (362.50, 363.00, 361.90, 280),   # 9:55
+    (361.90, 362.10, 361.50, 280),   # 9:55 (closes UNDER the range high)
     (361.68, 362.00, 361.00, 290),   # 10:00
-    (364.18, 364.50, 363.80, 400),   # 10:05 -> closes 10:10 (bar 8 in the reel counts from 9:30)
-    (365.00, 366.00, 364.00, 450),   # 10:10 -> closes 10:15
+    (364.18, 364.50, 363.80, 400),   # 10:05 -> closes 10:10, first close above
+    (365.00, 366.00, 364.00, 450),   # 10:10
 ]
 
 
@@ -171,7 +174,7 @@ def test_entry_triggered_at_reel_time():
     r = check_entry(bars, datetime(2026, 10, 19, 10, 15))
     assert r.status == "triggered"
     assert r.price == 364.18
-    assert r.time == datetime(2026, 10, 19, 10, 10)      # bar 8 (10:05 bar) closes 10:10
+    assert r.time == datetime(2026, 10, 19, 10, 10)      # the 10:05 bar closes 10:10
 
 
 def test_entry_waiting_before_close():
