@@ -5,7 +5,7 @@ Writes one bracket order (paper trading only in this application).
 """
 from __future__ import annotations
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 class BudgetRefusal(Exception):
@@ -13,10 +13,10 @@ class BudgetRefusal(Exception):
 
 
 DEFAULT_CONFIG = {
-    "budget": 5000.0,                # money for this, only money the user can lose
-    "cash_buffer_pct": 10.0,         # always stays in cash
+    "budget": 5000.0,
+    "cash_buffer_pct": 10.0,
     "max_loss_per_trade_usd": 50.0,
-    "max_position_pct": 75.0,        # of the budget
+    "max_position_pct": 75.0,
     "max_order_usd": 4000.0,
     "min_order_usd": 5.0,
     "min_reward_risk": 1.0,
@@ -25,7 +25,7 @@ DEFAULT_CONFIG = {
 
 @dataclass(frozen=True)
 class SizedOrder:
-    order: dict                      # Alpaca-shaped bracket order (paper destination)
+    order: dict
     qty: int
     deciding_limit: str
     limits: dict
@@ -44,12 +44,9 @@ class SizedOrder:
 
 def size_position(plan, config=None, fresh_price=None, fresh_age_min=None,
                  cash=None, symbol=None):
-    """plan: {entry, stop, target, risk_per_share?, target_r?}.
-    fresh_price/fresh_age_min: a quote from the market feed, used ONLY when
-    fresh (under 15 min) and HIGHER than the plan entry - a price that ran
-    up means a bigger loss at the same stop, so fewer shares (skill rule).
-    cash: portfolio cash caps the size, never more than what is held.
-    """
+    """plan: {entry, stop, target}. A fresh quote is used ONLY when under
+    15 minutes old and HIGHER than the plan entry (skill rule: a price that
+    ran up means a bigger loss at the same stop, so fewer shares)."""
     cfg = dict(DEFAULT_CONFIG)
     cfg.update(config or {})
     entry = float(plan["entry"])
@@ -67,7 +64,9 @@ def size_position(plan, config=None, fresh_price=None, fresh_age_min=None,
         eff = float(fresh_price)
 
     risk = round(eff - stop, 2)
-    rr = (target - eff) / risk if risk > 0 else 0.0
+    # reward:risk rounded to 2 decimals, like the skill prints it (1.00 at 1R):
+    # raw float division of cent-rounded prices can sit a hair under 1.0.
+    rr = round((target - eff) / risk, 2) if risk > 0 else 0.0
     if rr < cfg["min_reward_risk"]:
         raise BudgetRefusal(
             "reward:risk " + format(rr, ".2f") + " under min "
@@ -102,7 +101,7 @@ def size_position(plan, config=None, fresh_price=None, fresh_age_min=None,
         "stop_loss_stop_price": format(stop, ".2f"),
         "why": "sized by the Budget Manager (paper trading only)",
         "plan": {"entry": entry, "stop": stop, "target": target,
-                 "risk_per_share": risk, "reward_risk": round(rr, 2)},
+                 "risk_per_share": risk, "reward_risk": rr},
     }
     return SizedOrder(order=order, qty=qty, deciding_limit=deciding,
                       limits=limits, notional=notional, max_loss_at_stop=max_loss,
