@@ -1,0 +1,26 @@
+# Full CI: backend fidelity tests + frontend vitest + type-checked build.
+# NOTE: to activate GitHub Actions, move this file to .github/workflows/ci.yml.
+name: CI-Full
+on:
+  push:
+    branches: [main, develop]
+jobs:
+  backend-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r backend/requirements.txt
+      - run: python -m pytest backend/tests -q
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: cd frontend && npm install
+      - run: cd frontend && npm test
+      - run: cd frontend && npm run build
