@@ -119,8 +119,6 @@ def check_orders(orders, config=None, holdings=None, cash=None, fresh=None,
                 qty = int(o["qty"])
             except (TypeError, ValueError):
                 reasons.append("format: qty is not an integer")
-        if qty is None and "notional" in o and o.get("notional") is None:
-            reasons.append("format: notional order without an amount")
         if o.get("type") == "limit" and not o.get("limit_price"):
             reasons.append("format: limit order without a limit price")
         if qty is not None and qty <= 0:
@@ -184,7 +182,8 @@ def check_orders(orders, config=None, holdings=None, cash=None, fresh=None,
                             + format(cfg["max_loss_per_trade_usd"], ".2f"))
                     target = plan.get("target")
                     if target:
-                        rr = (float(target) - eff) / risk
+                        # rounded to 2 decimals like the skill prints reward:risk
+                        rr = round((float(target) - eff) / risk, 2)
                         if rr < cfg["min_reward_risk"]:
                             reasons.append("reward:risk under the minimum")
                     if risk_used + max_loss > cfg["max_daily_loss_usd"]:
