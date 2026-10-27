@@ -1,0 +1,58 @@
+# Desktop releases: Windows x64 (NSIS) + macOS x64 targeting macOS 11 Big Sur.
+# Electron 37 is the last line supporting macOS 11 (Electron 38+ needs macOS 12).
+# NOTE: to activate, move this file to .github/workflows/desktop-release.yml
+# and create a tag v* to trigger.
+name: Desktop Release
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: cd frontend && npm install
+      - run: cd frontend && npm run build
+      - run: cd frontend && npx electron-builder --win --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trading-opus-windows-x64
+          path: frontend/release/*.*
+  build-macos:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: cd frontend && npm install
+      - run: cd frontend && npm run build
+      # x64 build, min macOS 11.0 - the runner is Intel (macos-13)
+      - run: cd frontend && npx electron-builder --mac --x64 --publish never
+        env:
+          # unsigned build: document that Gatekeeper requires right-click > Open
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trading-opus-macos-x64
+          path: frontend/release/*.*
+  release:
+    needs: [build-windows, build-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/trading-opus-windows-x64/*
+            artifacts/trading-opus-macos-x64/*
