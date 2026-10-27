@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Trading Opus — multi-agents paper trading</title>
+    <script>
+      // apply the persisted theme before first paint (no flash)
+      try {
+        var m = localStorage.getItem('trading-opus-theme') || 'dark';
+        var r = m !== 'system' ? m
+          : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+        document.documentElement.setAttribute('data-theme', r);
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
