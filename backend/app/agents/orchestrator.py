@@ -4,7 +4,7 @@
   exit -> timemachine -> budget -> risk -> broker) without contradictory
   concurrent runs (one pipeline lock per symbol)
 - structured handoffs between agents (watchlist -> entry -> plan -> orders)
-- retries with backoff, timeouts; an agent's failure never blocks the others
+- timeouts and per-agent isolation: one agent's failure never blocks the others
 - full audit trail per execution (agent, skill ref, model, instrument, status,
   duration, results, errors)
 - each agent can be disabled independently
@@ -27,9 +27,7 @@ from .broker_agent import BrokerAgent
 from .alerts_agent import AlertsAgent
 from .analyst_agent import AnalystAgent
 from .pelosi_agent import PelosiAgent
-
-PIPELINE = ["scanner", "news", "entry", "exit", "timemachine", "budget", "risk"]
-SCHEDULED = {"news": 900, "analyst": 3600, "pelosi": 3600, "alerts": 60}
+from ..core.entry import build_opening_range
 
 
 @dataclass
@@ -81,31 +79,33 @@ class Orchestrator:
         return [self.agents[k].status() for k in sorted(self.agents)
                 if k not in self.disabled]
 
-    # ---- single run with audit ----
-    async def run_agent(self, key: str, **kwargs):
+    # ---- single run with audit; ALWAYS returns a plain dict ----
+    async def run_agent(self, key: str, **kwargs) -> dict:
         agent = self.agents.get(key)
         if agent is None:
-            return {"agent": key, "status": "error", "errors": ["unknown agent"]}
+            return {"agent": key, "status": "error",
+                    "errors": ["unknown agent"], "data": {}}
         if key in self.disabled:
-            return {"agent": key, "status": "skipped", "errors": ["agent disabled"]}
+            return {"agent": key, "status": "skipped",
+                    "errors": ["agent disabled"], "data": {}}
+        timeout = self.config.get("agent_timeout_s", 120)
         try:
             res = await asyncio.wait_for(asyncio.to_thread(agent.run, **kwargs),
-                                         timeout=self.config.get("agent_timeout_s", 120))
+                                         timeout=timeout)
+            out = {"agent": key, **res.as_dict()}
         except asyncio.TimeoutError:
-            res = {"agent": key, "status": "error",
-                   "errors": ["timeout after " + str(self.config.get("agent_timeout_s", 120)) + "s"]}
-        entry = {
+            out = {"agent": key, "status": "error",
+                   "errors": ["timeout after " + str(timeout) + "s"], "data": {}}
+        self.audit.append({
             "ts": datetime.now(timezone.utc).isoformat(),
             "agent": key, "skill": agent.spec.skill, "skill_ref": SKILL_REF_COMMIT,
             "model": agent.model,
             "instrument": kwargs.get("symbol") or kwargs.get("symbols"),
-            "status": res.get("status") if isinstance(res, dict) else res.status,
-            "result": res.get("result") if isinstance(res, dict) else res.as_dict(),
-            "errors": res.get("errors", []) if isinstance(res, dict) else res.errors,
-        }
-        self.audit.append(entry)
+            "status": out["status"], "result": out["data"],
+            "errors": out["errors"],
+        })
         self.audit = self.audit[-500:]
-        return res
+        return out
 
     # ---- the full trade pipeline for one symbol ----
     async def run_trade_pipeline(self, symbol, daily_closes, intraday_bars,
@@ -119,62 +119,71 @@ class Orchestrator:
                     "reason": "a pipeline is already running for " + symbol}
         async with lock:
             out = {"symbol": symbol, "steps": []}
-            watch = daily_closes, intraday_bars
+
             # 1. scanner
             sc = await self.run_agent("scanner", daily_closes={symbol: daily_closes},
                                       intraday_bars={symbol: intraday_bars}, now=now)
-            out["steps"].append(("scanner", sc.get("status")))
+            out["steps"].append(("scanner", sc["status"]))
+
             # 2. news (sources may be offline -> partial is honest)
             news = await self.run_agent("news", tickers=[symbol])
-            out["steps"].append(("news", news.get("status")))
+            out["steps"].append(("news", news["status"]))
+
             # 3. entry
             entry = await self.run_agent("entry", symbol=symbol, bars=intraday_bars, now=now)
-            out["steps"].append(("entry", entry.get("status")))
+            out["steps"].append(("entry", entry["status"]))
             entry_data = entry.get("data") or {}
-            if entry.get("status") != "success" or entry_data.get("status") != "triggered":
+            if entry["status"] != "success" or entry_data.get("status") != "triggered":
                 out["status"] = "no_entry"
-                out["reason"] = entry_data.get("status") or entry.get("status")
+                out["reason"] = entry_data.get("status") or entry["status"]
                 return out
-            # 4. exit plan (stop/target BEFORE the buy)
-            rng_high = entry_data.get("level")
+
+            # 4. exit plan (stop/target BEFORE the buy) - from the REAL opening range
+            rng = build_opening_range(intraday_bars, or_minutes=15, interval=5)
             ex = await self.run_agent("exit", entry=entry_data.get("price"),
-                                      or_high=rng_high, or_low=None,
+                                      or_high=rng.high if rng else None,
+                                      or_low=rng.low if rng else None,
                                       bars=intraday_bars)
-            out["steps"].append(("exit", ex.get("status")))
+            out["steps"].append(("exit", ex["status"]))
             plan = ex.get("data") or {}
-            if ex.get("status") != "success":
+            if ex["status"] != "success":
                 out["status"] = "no_plan"
+                out["reason"] = plan.get("refusal")
                 return out
             plan["symbol"] = symbol
+
             # 5. timemachine
-            tm_plan = {"date": plan.get("date") or now.date(), "entry": plan["entry"],
+            tm_plan = {"date": now.date(), "entry": plan["entry"],
                        "stop": plan["stop"], "target": plan["target"],
                        "entry_bar": entry_data.get("entry_bar", 8), "target_r": 1}
             tm = await self.run_agent("timemachine", plan=tm_plan, chart_by_day=chart_by_day)
-            out["steps"].append(("timemachine", tm.get("status")))
+            out["steps"].append(("timemachine", tm["status"]))
+
             # 6. budget
             bg = await self.run_agent("budget", plan=plan, cash=cash,
                                       fresh_price=(fresh or {}).get(symbol, {}).get("price"),
                                       fresh_age_min=(fresh or {}).get(symbol, {}).get("age_min"))
-            out["steps"].append(("budget", bg.get("status")))
+            out["steps"].append(("budget", bg["status"]))
             sized = bg.get("data") or {}
-            if bg.get("status") != "success":
+            if bg["status"] != "success":
                 out["status"] = "not_sized"
                 out["reason"] = sized.get("refusal")
                 return out
             order = sized.get("order") or {}
             order["symbol"] = symbol
+
             # 7. risk gate (deterministic, mandatory, unskippable)
             rk = await self.run_agent("risk", orders=[order], holdings=holdings,
                                       cash=cash, fresh=fresh,
                                       today_entries=today_entries, today_risk=today_risk,
                                       now_ny=now)
-            out["steps"].append(("risk", rk.get("status")))
+            out["steps"].append(("risk", rk["status"]))
             verdicts = (rk.get("data") or {}).get("verdicts") or []
             if not verdicts or verdicts[0]["verdict"] != "PASS":
                 out["status"] = "risk_blocked"
                 out["reason"] = verdicts[0]["reasons"] if verdicts else "no verdict"
                 return out
+
             # 8. proposal to the user (accept / modify / refuse)
             self._proposal_seq += 1
             pid = symbol + "-" + str(self._proposal_seq)
